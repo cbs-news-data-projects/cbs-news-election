@@ -13,7 +13,6 @@ env/
 # Secrets — never commit
 .env
 .env.*
-!.env.example
 secrets.json
 .secrets
 

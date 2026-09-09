@@ -34,5 +34,3 @@ List them anytime: `uv run python -c "import tomllib;print(*tomllib.load(open('p
 - `notebooks/` — analysis (research only)
 - `scripts/` — data fetch / acquisition
 - `utils/`, `config.py` — shared helpers and paths
-
-Copy `.env.example` to `.env` for API keys and settings.
