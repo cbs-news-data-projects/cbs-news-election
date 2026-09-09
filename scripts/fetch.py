@@ -16,17 +16,30 @@ from config import PROCESSED_DATA_DIR
 URL = "https://partners.elections.cbsnews.com/live/2026G/preelection/H/races"
 
 
-def flatten_race(race: dict) -> dict:
+def flatten_race(race: dict, at_large_states: set) -> dict:
+    state_code = race.get("stateCode")
+    geo_id = race.get("geoId")
+    district = race.get("cd")
+    state_district = race.get("district")
+
+    # CBS labels at-large districts "01"; Datawrapper's congressional
+    # district map expects the Census convention "00". Six single-district
+    # states hit this: AK, DE, ND, SD, VT, WY.
+    if state_code in at_large_states:
+        geo_id = geo_id[:2] + "00" if geo_id else geo_id
+        district = "0"
+        state_district = state_code + "00"
+
     row = {
         "key": race.get("key"),
         "state": race.get("state"),
-        "state_code": race.get("stateCode"),
-        "state_district": race.get("district"),
+        "state_code": state_code,
+        "state_district": state_district,
         # Plain district number, no state code. Needed for per-state maps.
-        "district": race.get("cd"),
+        "district": district,
         # 4-digit state FIPS + district number. Matches Datawrapper's
         # congressional district map key more reliably than district text.
-        "geo_id": race.get("geoId"),
+        "geo_id": geo_id,
         "rating": race.get("rating"),
         "incumbent_party": race.get("incumbentParty"),
         "is_battleground": race.get("isBattleground"),
@@ -61,7 +74,11 @@ def fetch() -> None:
 
     import pandas as pd
 
-    df = pd.DataFrame(flatten_race(race) for race in races)
+    # A state with exactly one race has one district: at-large.
+    state_race_counts = pd.Series(race.get("stateCode") for race in races).value_counts()
+    at_large_states = set(state_race_counts[state_race_counts == 1].index)
+
+    df = pd.DataFrame(flatten_race(race, at_large_states) for race in races)
 
     # Datawrapper's congressional district maps join on this field. A
     # malformed geo_id breaks the map silently instead of raising an error.
