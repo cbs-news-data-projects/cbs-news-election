@@ -31,6 +31,9 @@ data/**/*.zip
 !data/**/sample_*.csv
 !data/**/example_*.csv
 
+# Published output the Datawrapper feed and scheduled workflow depend on
+!data/processed/house_races.csv
+
 # Editors / OS
 .vscode/*
 !.vscode/settings.json
