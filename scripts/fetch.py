@@ -22,6 +22,9 @@ def flatten_race(race: dict) -> dict:
         "state": race.get("state"),
         "state_code": race.get("stateCode"),
         "district": race.get("district"),
+        # 4-digit state FIPS + district number. Matches Datawrapper's
+        # congressional district map key more reliably than district text.
+        "geo_id": race.get("geoId"),
         "rating": race.get("rating"),
         "incumbent_party": race.get("incumbentParty"),
         "is_battleground": race.get("isBattleground"),
@@ -57,6 +60,15 @@ def fetch() -> None:
     import pandas as pd
 
     df = pd.DataFrame(flatten_race(race) for race in races)
+
+    # Datawrapper's congressional district maps join on this field. A
+    # malformed geo_id breaks the map silently instead of raising an error.
+    bad_geo_id = df[~df["geo_id"].astype(str).str.match(r"^\d{4}$")]
+    if len(bad_geo_id):
+        raise ValueError(
+            f"{len(bad_geo_id)} race(s) have a missing or malformed geo_id: "
+            f"{bad_geo_id['key'].tolist()}"
+        )
 
     out_path = PROCESSED_DATA_DIR / "house_races.csv"
     df.to_csv(out_path, index=False)
