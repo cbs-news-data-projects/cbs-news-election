@@ -1,6 +1,6 @@
 # cbs-election-ratings
 
-Data journalism project.
+A draft pipeline for testing House race ratings automation before broadcast use. Pulls CBS's live ratings feed on a schedule to draft a clean CSV, so we can test the data against Datawrapper before it's production-ready.
 
 ## Setup
 
