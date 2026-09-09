@@ -17,22 +17,6 @@ env/
 secrets.json
 .secrets
 
-# Data files (large or obtained source files live in data/, kept out of git)
-data/**/*.csv
-data/**/*.json
-data/**/*.parquet
-data/**/*.xlsx
-data/**/*.xls
-data/**/*.pkl
-data/**/*.h5
-data/**/*.zip
-# ...but keep the folder structure and small committed samples
-!data/**/.gitkeep
-!data/**/sample_*.csv
-!data/**/example_*.csv
-
-# Published output the Datawrapper feed and scheduled workflow depend on
-!data/processed/house_races.csv
 
 # Editors / OS
 .vscode/*
