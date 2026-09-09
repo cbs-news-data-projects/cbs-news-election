@@ -3,7 +3,8 @@
 Source: CBS News Elections, preelection race ratings. 2026 general election, House.
 https://partners.elections.cbsnews.com/live/2026G/preelection/H/races
 Input:  none, pulled directly from the source
-Output: data/processed/house_races.csv, data/processed/battleground_states.csv
+Output: data/processed/house_races.csv, data/processed/battleground_states.csv,
+        data/processed/states/<state_code>.csv (one per battleground state)
 Run:    uv run python scripts/fetch.py
 
 Runs locally or on a schedule via .github/workflows/data-fetch.yml.
@@ -97,6 +98,25 @@ def fetch() -> None:
     states_out_path = PROCESSED_DATA_DIR / "battleground_states.csv"
     states_df.to_csv(states_out_path, index=False)
     print(f"Wrote {states_out_path} ({len(states_df):,} states)")
+
+    write_battleground_state_files(df, states_df)
+
+
+def write_battleground_state_files(df, states_df) -> None:
+    states_dir = PROCESSED_DATA_DIR / "states"
+    # Clears stale per-state files so a state that drops out of the
+    # battleground list this run doesn't leave a stale file behind.
+    if states_dir.exists():
+        for old_file in states_dir.glob("*.csv"):
+            old_file.unlink()
+    states_dir.mkdir(exist_ok=True)
+
+    battleground_states = states_df.loc[states_df["battleground_count"] > 0, "state"]
+    for state in battleground_states:
+        state_code = df.loc[df["state"] == state, "state_code"].iloc[0]
+        df[df["state"] == state].to_csv(states_dir / f"{state_code}.csv", index=False)
+
+    print(f"Wrote {len(battleground_states):,} per-state files to {states_dir}")
 
 
 def summarize_battleground_states(df) -> "pd.DataFrame":
