@@ -1,9 +1,9 @@
-"""Fetch CBS News House race ratings and flatten to one row per race.
+"""Fetch CBS News House race ratings and export race and state-level tables.
 
 Source: CBS News Elections, preelection race ratings. 2026 general election, House.
 https://partners.elections.cbsnews.com/live/2026G/preelection/H/races
 Input:  none, pulled directly from the source
-Output: data/processed/house_races.csv
+Output: data/processed/house_races.csv, data/processed/battleground_states.csv
 Run:    uv run python scripts/fetch.py
 
 Runs locally or on a schedule via .github/workflows/data-fetch.yml.
@@ -92,6 +92,28 @@ def fetch() -> None:
     out_path = PROCESSED_DATA_DIR / "house_races.csv"
     df.to_csv(out_path, index=False)
     print(f"Wrote {out_path} ({len(df):,} races)")
+
+    states_df = summarize_battleground_states(df)
+    states_out_path = PROCESSED_DATA_DIR / "battleground_states.csv"
+    states_df.to_csv(states_out_path, index=False)
+    print(f"Wrote {states_out_path} ({len(states_df):,} states)")
+
+
+def summarize_battleground_states(df) -> "pd.DataFrame":
+    battleground = df[df["is_battleground"] == True].copy()
+    battleground["district_label"] = (
+        battleground["state_district"] + " (" + battleground["rating"] + ")"
+    )
+
+    summary = battleground.groupby("state").agg(
+        battleground_count=("state_district", "count"),
+        battleground_districts=("district_label", "; ".join),
+    )
+
+    result = df[["state"]].drop_duplicates().merge(summary, on="state", how="left")
+    result["battleground_count"] = result["battleground_count"].fillna(0).astype(int)
+    result["battleground_districts"] = result["battleground_districts"].fillna("")
+    return result.sort_values("state").reset_index(drop=True)
 
 
 if __name__ == "__main__":
