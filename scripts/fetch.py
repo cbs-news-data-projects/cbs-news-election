@@ -21,7 +21,9 @@ def flatten_race(race: dict) -> dict:
         "key": race.get("key"),
         "state": race.get("state"),
         "state_code": race.get("stateCode"),
-        "district": race.get("district"),
+        "state_district": race.get("district"),
+        # Plain district number, no state code. Needed for per-state maps.
+        "district": race.get("cd"),
         # 4-digit state FIPS + district number. Matches Datawrapper's
         # congressional district map key more reliably than district text.
         "geo_id": race.get("geoId"),
