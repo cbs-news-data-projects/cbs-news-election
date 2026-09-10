@@ -12,9 +12,10 @@ manually from a machine on CBS VPN. The GitHub Actions schedule in
 .github/workflows/fetch.yml is disabled because runner IPs are blocked.
 """
 
+import pandas as pd
 import requests
 
-from config import PROCESSED_DATA_DIR
+from config import DOCUMENTATION_DIR, PROCESSED_DATA_DIR
 
 URL = "https://partners.elections.cbsnews.com/live/2026G/preelection/H/races"
 
@@ -76,8 +77,6 @@ def fetch() -> None:
     resp.raise_for_status()
     races = resp.json()
 
-    import pandas as pd
-
     # A state with exactly one race has one district: at-large.
     state_race_counts = pd.Series(race.get("stateCode") for race in races).value_counts()
     at_large_states = set(state_race_counts[state_race_counts == 1].index)
@@ -128,14 +127,23 @@ def summarize_battleground_states(df) -> "pd.DataFrame":
         battleground["state_district"] + " (" + battleground["rating"] + ")"
     )
 
+    # Joined with an HTML break/rule/break so Datawrapper renders each
+    # district on its own line, separated by a thin divider.
+    district_separator = "<br><hr><br>"
     summary = battleground.groupby("state").agg(
         battleground_count=("state_district", "count"),
-        battleground_districts=("district_label", "; ".join),
+        battleground_districts=("district_label", district_separator.join),
     )
 
     result = df[["state"]].drop_duplicates().merge(summary, on="state", how="left")
     result["battleground_count"] = result["battleground_count"].fillna(0).astype(int)
     result["battleground_districts"] = result["battleground_districts"].fillna("")
+
+    # Datawrapper chart ID for each state's map, tracked by hand in
+    # data/documentation since Datawrapper has no lookup API for it.
+    chart_ids = pd.read_csv(DOCUMENTATION_DIR / "datawrapper_state_charts.csv")
+    result = result.merge(chart_ids, on="state", how="left")
+
     return result.sort_values("state").reset_index(drop=True)
 
 
