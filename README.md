@@ -1,6 +1,12 @@
 # cbs-election-ratings
 
-A draft pipeline for testing House race ratings automation before broadcast use. Pulls CBS's live ratings feed on a schedule to draft a clean CSV, so we can test the data against Datawrapper before it's production-ready.
+A draft pipeline for testing House race ratings automation before broadcast use. Pulls CBS's live ratings feed to draft a clean CSV, so we can test the data against Datawrapper before it's production-ready.
+
+**Refresh the data:** the source feed only accepts requests from CBS's network, so run this manually from a machine on CBS VPN — it won't work over GitHub Actions or off-VPN:
+
+```bash
+uv run python scripts/fetch.py
+```
 
 ## Setup
 

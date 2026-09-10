@@ -7,7 +7,9 @@ Output: data/processed/house_races.csv, data/processed/battleground_states.csv,
         data/processed/states/<state_code>.csv (one per battleground state)
 Run:    uv run python scripts/fetch.py
 
-Runs locally or on a schedule via .github/workflows/data-fetch.yml.
+The feed only allows requests from CBS's network, so this must be run
+manually from a machine on CBS VPN. The GitHub Actions schedule in
+.github/workflows/fetch.yml is disabled because runner IPs are blocked.
 """
 
 import requests
@@ -20,7 +22,8 @@ URL = "https://partners.elections.cbsnews.com/live/2026G/preelection/H/races"
 def flatten_race(race: dict, at_large_states: set) -> dict:
     state_code = race.get("stateCode")
     geo_id = race.get("geoId")
-    district = race.get("cd")
+    # Zero-padded to two digits to match Datawrapper's per-state map convention.
+    district = str(race.get("cd")).zfill(2)
     state_district = race.get("district")
 
     # CBS labels at-large districts "01"; Datawrapper's congressional
@@ -28,7 +31,7 @@ def flatten_race(race: dict, at_large_states: set) -> dict:
     # states hit this: AK, DE, ND, SD, VT, WY.
     if state_code in at_large_states:
         geo_id = geo_id[:2] + "00" if geo_id else geo_id
-        district = "0"
+        district = "00"
         state_district = state_code + "00"
 
     row = {

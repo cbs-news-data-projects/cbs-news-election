@@ -1,13 +1,15 @@
 name: Scheduled Data Fetch
 
-# Fetches CBS News House race ratings twice a day and commits the CSV.
-# Cron syntax: minute hour day-of-month month day-of-week (UTC)
-#   '0 11,23 * * *' → 11am and 11pm UTC (7am / 7pm ET)
+# Fetches CBS News House race ratings and commits the CSV.
+#
+# The source feed (partners.elections.cbsnews.com) sits behind a CloudFront
+# WAF that only allows requests from CBS's network/VPN. GitHub-hosted runners
+# can't reach it, so the cron schedule is disabled — run scripts/fetch.py
+# manually from a machine on CBS VPN instead. workflow_dispatch is kept in
+# case this ever runs from a self-hosted runner on CBS's network.
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 11,23 * * *'
 
 jobs:
   fetch:
