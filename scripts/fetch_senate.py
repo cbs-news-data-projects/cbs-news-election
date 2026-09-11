@@ -11,12 +11,14 @@ feed. Candidate names/percentages aren't needed downstream, so this only
 keeps race-level rating fields. This script skips district and geo_id logic.
 Senate races are one per state.
 
-Uses httpx, not requests: CBS's edge (Fastly) 406s requests' TLS/HTTP
-fingerprint specifically, regardless of headers sent. httpx's HTTP/2 client
-is not blocked.
+Fetches via the `curl` binary, not a Python HTTP client: CBS's edge
+consistently 406s requests from Python's ssl stack (both requests and
+httpx, HTTP/1.1 or HTTP/2) by TLS fingerprint, while curl is never blocked.
 """
 
-import httpx
+import json
+import subprocess
+
 import pandas as pd
 
 from config import PROCESSED_DATA_DIR
@@ -37,9 +39,11 @@ def flatten_race(race: dict) -> dict:
 
 
 def fetch() -> None:
-    resp = httpx.get(URL, timeout=30)
-    resp.raise_for_status()
-    races = resp.json()["senate-races"]
+    result = subprocess.run(
+        ["curl", "-s", "-m", "30", "--fail", URL],
+        capture_output=True, text=True, check=True,
+    )
+    races = json.loads(result.stdout)["senate-races"]
 
     df = pd.DataFrame(flatten_race(race) for race in races)
 
