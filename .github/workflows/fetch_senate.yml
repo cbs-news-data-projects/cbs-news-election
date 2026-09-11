@@ -1,0 +1,44 @@
+name: Scheduled Senate Data Fetch
+
+# Fetches CBS News Senate race ratings and commits the CSV.
+#
+# Unlike the House feed, this one (www.cbsnews.com/election-api) is public
+# and reachable from GitHub-hosted runners, so it runs on a cron schedule.
+#
+# Cron times are UTC. 6/8/10am ET = 10/12/14 UTC during EDT (UTC-4, roughly
+# mid-March to early November). During EST (UTC-5) these run 5/7/9am ET —
+# shift the hours by one if that matters after the fall-back changeover.
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+
+    - name: Set up Python
+      run: uv python install 3.13
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Fetch data
+      run: uv run python scripts/fetch_senate.py
+
+    - name: Commit updated data
+      run: |
+        git config user.name  "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add data/processed/senate_races.csv
+        git diff --cached --quiet || git commit -m "chore: refresh Senate race ratings [$(date -u +%Y-%m-%d)]"
+        git push
