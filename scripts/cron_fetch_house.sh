@@ -8,8 +8,9 @@
 # with Alaska on 2026-09-11) — that failure will show up as a nonzero exit
 # and a stack trace in the log, with no commit made, until CBS fixes the feed.
 #
-# Install with `crontab -e`, e.g. for 6/8/10am local time:
-#   0 6,8,10 * * * /Users/johnl.kelly/Code/cbs-election-ratings/scripts/cron_fetch_house.sh >> /Users/johnl.kelly/Code/cbs-election-ratings/logs/house_fetch.log 2>&1
+# Install with `crontab -e`. Runs once at 9am for now, offset from the
+# Senate cron's 6/8/10am so the two don't run at the same time:
+#   0 9 * * * /Users/johnl.kelly/Code/cbs-election-ratings/scripts/cron_fetch_house.sh >> /Users/johnl.kelly/Code/cbs-election-ratings/logs/house_fetch.log 2>&1
 
 set -euo pipefail
 
