@@ -1,23 +1,45 @@
 """Fetch CBS News House race ratings and export race and state-level tables.
 
 Source: CBS News Elections, preelection race ratings. 2026 general election, House.
-https://partners.elections.cbsnews.com/live/2026G/preelection/H/races
+https://www.cbsnews.com/election-api/2026/pre-election-house-races.json
 Input:  none, pulled directly from the source
 Output: data/processed/house_races.csv, data/processed/battleground_states.csv,
         data/processed/states/<state_code>.csv (one per battleground state)
 Run:    uv run python scripts/fetch.py
 
-The feed only allows requests from CBS's network, so this must be run
-manually from a machine on CBS VPN. The GitHub Actions schedule in
-.github/workflows/fetch.yml is disabled because runner IPs are blocked.
+Public feed, no VPN required. Replaces the old partners.elections.cbsnews.com
+feed. Fetches via the `curl` binary, not a Python HTTP client: CBS's edge
+consistently 406s Python's ssl stack (requests and httpx alike, HTTP/1.1 or
+HTTP/2) by TLS fingerprint, while curl is never blocked. See
+scripts/fetch_senate.py for the same pattern and 50 states of confirmation.
+
+The feed has been observed to contain a junk row with placeholder fields
+(missing state/stateCode, "cd": "CD") whose candidates duplicate a real
+district elsewhere in the feed — rows missing stateCode are dropped. The
+feed has also been observed to drop a state's race entirely (Alaska,
+2026-09-11, which has no other House district to fall back on) without
+any error; this script hard-fails if all 50 states aren't present, rather
+than silently publishing an incomplete map. DC isn't in this feed at all
+(no voting House seat), so it's excluded from the expected count.
 """
 
+import json
+import subprocess
+
 import pandas as pd
-import requests
 
 from config import DOCUMENTATION_DIR, PROCESSED_DATA_DIR
 
-URL = "https://partners.elections.cbsnews.com/live/2026G/preelection/H/races"
+URL = "https://www.cbsnews.com/election-api/2026/pre-election-house-races.json"
+
+# 50 states, no DC (DC's House delegate is non-voting and isn't in this feed).
+US_STATE_CODES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+}
 
 
 def flatten_race(race: dict, at_large_states: set) -> dict:
@@ -73,9 +95,26 @@ def flatten_race(race: dict, at_large_states: set) -> dict:
 
 
 def fetch() -> None:
-    resp = requests.get(URL, timeout=30)
-    resp.raise_for_status()
-    races = resp.json()
+    result = subprocess.run(
+        ["curl", "-s", "-m", "30", "--fail", URL],
+        capture_output=True, text=True, check=True,
+    )
+    all_races = json.loads(result.stdout)["house-races"]
+
+    # Drop junk rows with no stateCode (observed: a placeholder row with
+    # "cd": "CD" and candidates duplicating a real district elsewhere).
+    races = [race for race in all_races if race.get("stateCode")]
+    dropped = len(all_races) - len(races)
+    if dropped:
+        print(f"Dropped {dropped} race(s) missing stateCode (feed data issue)")
+
+    present_states = {race["stateCode"] for race in races}
+    missing_states = US_STATE_CODES - present_states
+    if missing_states:
+        raise ValueError(
+            f"Feed is missing {len(missing_states)} state(s) entirely: "
+            f"{sorted(missing_states)}. Not publishing an incomplete map."
+        )
 
     # A state with exactly one race has one district: at-large.
     state_race_counts = pd.Series(race.get("stateCode") for race in races).value_counts()
