@@ -4,6 +4,7 @@ Source: CBS News Elections, preelection race ratings. 2026 general election, Sen
 https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json
 Input:  none, pulled directly from the source
 Output: data/processed/senate_races.csv
+        data/processed/senate_battleground.csv (races where is_battleground is True)
 Run:    uv run python scripts/fetch_senate.py
 
 Public feed, no VPN required. Replaces the old partners.elections.cbsnews.com
@@ -50,6 +51,10 @@ def fetch() -> None:
     out_path = PROCESSED_DATA_DIR / "senate_races.csv"
     df.to_csv(out_path, index=False)
     print(f"Wrote {out_path} ({len(df):,} races)")
+
+    battleground_path = PROCESSED_DATA_DIR / "senate_battleground.csv"
+    df[df["is_battleground"]].to_csv(battleground_path, index=False)
+    print(f"Wrote {battleground_path} ({len(df[df['is_battleground']]):,} races)")
 
 
 if __name__ == "__main__":
