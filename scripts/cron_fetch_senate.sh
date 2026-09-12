@@ -15,8 +15,8 @@ cd "$REPO_DIR"
 
 /Users/johnl.kelly/.local/bin/uv run python scripts/fetch_senate.py
 
-if ! git diff --quiet -- data/processed/senate_races.csv; then
-    git add data/processed/senate_races.csv
+if ! git diff --quiet -- data/processed/senate_races.csv data/processed/senate_battleground.csv; then
+    git add data/processed/senate_races.csv data/processed/senate_battleground.csv
     git commit -m "chore: refresh Senate race ratings [$(date -u +%Y-%m-%d)]"
     git push
 fi
