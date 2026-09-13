@@ -3,7 +3,8 @@
 Source: CBS News Elections, preelection race ratings. 2026 general election, Senate.
 https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json
 Input:  none, pulled directly from the source
-Output: data/processed/senate_races.csv
+Output: data/raw/senate_races.json (raw API response, overwritten each run)
+        data/processed/senate_races.csv
         data/processed/senate_battleground.csv (races where is_battleground is True)
 Run:    uv run python scripts/fetch_senate.py
 
@@ -22,7 +23,7 @@ import subprocess
 
 import pandas as pd
 
-from config import PROCESSED_DATA_DIR
+from config import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
 URL = "https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json"
 
@@ -44,6 +45,9 @@ def fetch() -> None:
         ["curl", "-s", "-m", "30", "--fail", URL],
         capture_output=True, text=True, check=True,
     )
+    raw_path = RAW_DATA_DIR / "senate_races.json"
+    raw_path.write_text(result.stdout)
+
     races = json.loads(result.stdout)["senate-races"]
 
     df = pd.DataFrame(flatten_race(race) for race in races)
