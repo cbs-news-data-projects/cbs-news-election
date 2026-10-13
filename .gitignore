@@ -40,5 +40,8 @@ data/raw/
 # To publish a file, write it to data/public/ instead. See README.
 data/processed/*
 !data/processed/.gitkeep
+
+# Notebooks. Internal only for now. Delete this line to version them.
+notebooks/
 CLAUDE.md
 .gitattributes
