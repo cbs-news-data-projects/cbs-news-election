@@ -1,190 +1,241 @@
-"""Fetch CBS News House race ratings and export race and state-level tables.
+"""Pull the CBS News 2026 general election feeds and write flat CSVs.
 
-Source: CBS News Elections, preelection race ratings. 2026 general election, House.
-https://www.cbsnews.com/election-api/2026/pre-election-house-races.json
+Source: CBS News Elections, cached Election Night feeds. 2026 general election.
+        https://dev-fly.cbsnews.com/election-api/2026/general-balance.json
+        https://dev-fly.cbsnews.com/election-api/2026/general-races.json
+        https://dev-fly.cbsnews.com/election-api/2026/general-races-{xx}.json
 Input:  none, pulled directly from the source
-Output: data/processed/house_races.csv, data/processed/battleground_states.csv,
-        data/processed/states/<state_code>.csv (one per battleground state)
+Output: data/raw/<pull time>/*.json (untouched snapshots, not versioned)
+        data/processed/balance.csv          one row per chamber and party
+        data/processed/balance_ratings.csv  one row per chamber and rating
+        data/processed/races.csv            one row per race
+        data/processed/candidates.csv       one row per candidate, race fields attached
 Run:    uv run python scripts/fetch.py
+        uv run python scripts/fetch.py --skip-states   (all-races file only)
 
-Public feed, no VPN required. Replaces the old partners.elections.cbsnews.com
-feed. Fetches via the `curl` binary, not a Python HTTP client: CBS's edge
-consistently 406s Python's ssl stack (requests and httpx alike, HTTP/1.1 or
-HTTP/2) by TLS fingerprint, while curl is never blocked. See
-scripts/fetch_senate.py for the same pattern and 50 states of confirmation.
+The all-races file is the source for races.csv and candidates.csv. The 51
+state files (50 states plus DC) are combined and compared against it. A
+mismatch prints a warning and does not stop the run. The national House
+popular-vote row (state code US) exists only in the all-races file.
 
-The feed has been observed to contain a junk row with placeholder fields
-(missing state/stateCode, "cd": "CD") whose candidates duplicate a real
-district elsewhere in the feed — rows missing stateCode are dropped. The
-feed has also been observed to drop a state's race entirely (Alaska,
-2026-09-11, which has no other House district to fall back on) without
-any error; this script hard-fails if all 50 states aren't present, rather
-than silently publishing an incomplete map. DC isn't in this feed at all
-(no voting House seat), so it's excluded from the expected count.
+The script stops before it writes any CSV if a state is missing or a
+chamber's race count differs from the seats at stake in the balance file.
+The CSVs on disk stay intact after a failed pull.
 """
 
+import argparse
 import json
+import re
 import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
+import requests
 
-from config import DOCUMENTATION_DIR, PROCESSED_DATA_DIR
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from config import API_TIMEOUT, PROCESSED_DATA_DIR, RAW_DATA_DIR  # noqa: E402
 
-URL = "https://www.cbsnews.com/election-api/2026/pre-election-house-races.json"
+BASE_URL = "https://dev-fly.cbsnews.com/election-api/2026"
 
-# 50 states, no DC (DC's House delegate is non-voting and isn't in this feed).
-US_STATE_CODES = {
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
-}
+# 50 states plus DC. Each has a general-races-{xx}.json file. US is not a
+# state file. It is the national House row inside general-races.json.
+STATE_CODES = [
+    "AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DC", "DE", "FL", "GA", "HI",
+    "IA", "ID", "IL", "IN", "KS", "KY", "LA", "MA", "MD", "ME", "MI", "MN",
+    "MO", "MS", "MT", "NC", "ND", "NE", "NH", "NJ", "NM", "NV", "NY", "OH",
+    "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VA", "VT", "WA",
+    "WI", "WV", "WY",
+]
+
+# Display fields for the CBS web graphics. They carry no reporting value.
+DROP_FIELDS = {"color", "color2", "ratingColor", "ratingCandidateColor", "img"}
+
+# Feed office codes for the chambers in general-balance.json.
+CHAMBERS = {"S": "Senate", "G": "Governor", "H": "House"}
 
 
-def flatten_race(race: dict, at_large_states: set) -> dict:
-    state_code = race.get("stateCode")
-    geo_id = race.get("geoId")
-    # Zero-padded to two digits to match Datawrapper's per-state map convention.
-    district = str(race.get("cd")).zfill(2)
-    state_district = race.get("district")
+def snake(name):
+    """Converts a camelCase feed key to snake_case."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
-    # CBS labels at-large districts "01"; Datawrapper's congressional
-    # district map expects the Census convention "00". Six single-district
-    # states hit this: AK, DE, ND, SD, VT, WY.
-    if state_code in at_large_states:
-        geo_id = geo_id[:2] + "00" if geo_id else geo_id
-        district = "00"
-        state_district = state_code + "00"
 
-    row = {
-        "key": race.get("key"),
-        "state": race.get("state"),
-        "state_code": state_code,
-        "state_district": state_district,
-        # Plain district number, no state code. Needed for per-state maps.
-        "district": district,
-        # 4-digit state FIPS + district number. Matches Datawrapper's
-        # congressional district map key more reliably than district text.
-        "geo_id": geo_id,
-        "rating": race.get("rating"),
-        "incumbent_party": race.get("incumbentParty"),
-        "is_battleground": race.get("isBattleground"),
-        "is_key_race": race.get("keyRace"),
+def get_json(url):
+    """Downloads one feed file and returns the parsed JSON.
+
+    Falls back to the curl binary on HTTP 406. The www.cbsnews.com edge
+    rejects Python HTTP clients by TLS fingerprint with a 406. The dev-fly
+    host accepts requests as of 2026-10-13.
+    """
+    resp = requests.get(url, timeout=API_TIMEOUT)
+    if resp.status_code == 406:
+        out = subprocess.run(
+            ["curl", "-sSf", "--max-time", str(API_TIMEOUT), url],
+            capture_output=True, text=True, check=True,
+        )
+        return json.loads(out.stdout)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def save_raw(payload, folder, name):
+    """Writes the feed file to the raw snapshot folder as received."""
+    (folder / f"{name}.json").write_text(json.dumps(payload))
+
+
+def balance_tables(balance):
+    """Flattens general-balance.json into a party table and a ratings table."""
+    feed_time = balance["meta"]["timestamp"]
+    party_rows, rating_rows = [], []
+    for office in balance["balance"]["offices"]:
+        chamber = {
+            "chamber": CHAMBERS.get(office["name"], office["name"]),
+            "seats_total": office["seatsTotal"],
+            "seats_at_stake": office["seatsAtStake"],
+            "seats_for_majority": office["seatsNeedForMajority"],
+            "last_updated": office["lastUpdated"],
+        }
+        for party in office["parties"]:
+            row = {k: v for k, v in party.items() if k not in DROP_FIELDS}
+            row = {snake(k): v for k, v in row.items()}
+            name = {"party": row.pop("name")}
+            party_rows.append({**chamber, **name, **row, "feed_timestamp": feed_time})
+        for rating, seats in office["ratings"].items():
+            rating_rows.append({
+                "chamber": chamber["chamber"],
+                "rating": rating,
+                "seats": seats,
+                "feed_timestamp": feed_time,
+            })
+    return pd.DataFrame(party_rows), pd.DataFrame(rating_rows)
+
+
+def race_tables(races, feed_time):
+    """Splits the race list into a race table and a candidate table."""
+    race_rows, cand_rows = [], []
+    for race in races:
+        fields = {
+            snake(k): v for k, v in race.items()
+            if k != "candidates" and k not in DROP_FIELDS
+        }
+        fields["race_id"] = fields.pop("id")
+        fields["race_key"] = fields.pop("key")
+        # Postal code plus two-digit district, e.g. PA-07. House races only.
+        fields["district_label"] = (
+            f"{race['stateCode']}-{race['jurisdictionCode']:02d}"
+            if race["jType"] == "CD" else None
+        )
+        fields["n_candidates"] = len(race["candidates"])
+        fields["feed_timestamp"] = feed_time
+        race_rows.append(fields)
+
+        for order, cand in enumerate(race["candidates"], start=1):
+            c = {snake(k): v for k, v in cand.items() if k not in DROP_FIELDS}
+            c["candidate_id"] = c.pop("id")
+            # Position in the feed's candidate list. The feed orders by vote
+            # once results arrive.
+            c["feed_order"] = order
+            cand_rows.append({**fields, **c})
+
+    race_df = pd.DataFrame(race_rows)
+    cand_df = pd.DataFrame(cand_rows)
+    lead = ["race_id", "state_code", "office", "office_name", "district_label"]
+    race_df = race_df[lead + [c for c in race_df.columns if c not in lead]]
+    cand_lead = lead + ["candidate_id", "full_name", "party", "is_incumbent"]
+    cand_df = cand_df[cand_lead + [c for c in cand_df.columns if c not in cand_lead]]
+    return race_df, cand_df
+
+
+def check_completeness(races, balance):
+    """Stops the run if a state or a chamber's races are missing."""
+    present = {r["stateCode"] for r in races}
+    missing = sorted(set(STATE_CODES) - present)
+    if missing:
+        sys.exit(f"STOP: no races for {', '.join(missing)}. No CSVs written.")
+
+    # House counts district races only. The national popular-vote row
+    # (jType NR) is not a seat.
+    for office in balance["balance"]["offices"]:
+        code = office["name"]
+        n = sum(
+            1 for r in races
+            if r["office"] == code and (code != "H" or r["jType"] == "CD")
+        )
+        if n != office["seatsAtStake"]:
+            sys.exit(
+                f"STOP: {CHAMBERS[code]} has {n} races in the feed but "
+                f"{office['seatsAtStake']} seats at stake. No CSVs written."
+            )
+
+
+def compare_state_files(races, state_races):
+    """Prints any difference between the combined state files and the all-races file."""
+    full = {r["id"]: r for r in races if r["stateCode"] != "US"}
+    combined = {r["id"]: r for r in state_races}
+    only_full = sorted(set(full) - set(combined))
+    only_states = sorted(set(combined) - set(full))
+    changed = [i for i in set(full) & set(combined) if full[i] != combined[i]]
+    if not (only_full or only_states or changed):
+        print(f"State files match the all-races file: {len(combined)} races.")
+        return
+    print("WARNING: state files differ from the all-races file.")
+    print(f"  In all-races only: {len(only_full)} {only_full[:10]}")
+    print(f"  In state files only: {len(only_states)} {only_states[:10]}")
+    print(f"  Same race, different content: {len(changed)} {sorted(changed)[:10]}")
+    print("  Expected mid-update on Election Night. The two files cache separately.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--skip-states", action="store_true",
+        help="Skip the 51 state files and the comparison.",
+    )
+    args = parser.parse_args()
+
+    pulled = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    raw_dir = RAW_DATA_DIR / pulled
+    raw_dir.mkdir(parents=True)
+
+    balance = get_json(f"{BASE_URL}/general-balance.json")
+    save_raw(balance, raw_dir, "general-balance")
+    all_races = get_json(f"{BASE_URL}/general-races.json")
+    save_raw(all_races, raw_dir, "general-races")
+    races = all_races["races"]
+
+    check_completeness(races, balance)
+
+    if not args.skip_states:
+        # Eight parallel downloads. One at a time takes about 45 seconds.
+        urls = [f"{BASE_URL}/general-races-{c.lower()}.json" for c in STATE_CODES]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            payloads = list(pool.map(get_json, urls))
+        state_races = []
+        for code, payload in zip(STATE_CODES, payloads):
+            save_raw(payload, raw_dir, f"general-races-{code.lower()}")
+            # Each state file keys its race list by the lowercase postal code.
+            state_races.extend(payload[code.lower()])
+        compare_state_files(races, state_races)
+
+    party_df, rating_df = balance_tables(balance)
+    race_df, cand_df = race_tables(races, all_races["meta"]["timestamp"])
+
+    outputs = {
+        "balance.csv": party_df,
+        "balance_ratings.csv": rating_df,
+        "races.csv": race_df,
+        "candidates.csv": cand_df,
     }
+    for name, df in outputs.items():
+        df.to_csv(PROCESSED_DATA_DIR / name, index=False)
 
-    # Keys by party (DEM/REP). A candidate of another party lands in
-    # other_candidate instead, so a jungle-primary or third-party race
-    # does not silently overwrite a major-party column.
-    other_candidates = []
-    for candidate in race.get("candidates", []):
-        party = candidate.get("party")
-        name = candidate.get("fullName")
-        pct = candidate.get("estPct")
-        if party == "DEM":
-            row["dem_candidate"] = name
-            row["dem_pct"] = pct
-        elif party == "REP":
-            row["rep_candidate"] = name
-            row["rep_pct"] = pct
-        else:
-            other_candidates.append(f"{name} ({party})")
-
-    row["other_candidates"] = "; ".join(other_candidates) if other_candidates else None
-    return row
-
-
-def fetch() -> None:
-    result = subprocess.run(
-        ["curl", "-s", "-m", "30", "--fail", URL],
-        capture_output=True, text=True, check=True,
-    )
-    all_races = json.loads(result.stdout)["house-races"]
-
-    # Drop junk rows with no stateCode (observed: a placeholder row with
-    # "cd": "CD" and candidates duplicating a real district elsewhere).
-    races = [race for race in all_races if race.get("stateCode")]
-    dropped = len(all_races) - len(races)
-    if dropped:
-        print(f"Dropped {dropped} race(s) missing stateCode (feed data issue)")
-
-    present_states = {race["stateCode"] for race in races}
-    missing_states = US_STATE_CODES - present_states
-    if missing_states:
-        raise ValueError(
-            f"Feed is missing {len(missing_states)} state(s) entirely: "
-            f"{sorted(missing_states)}. Not publishing an incomplete map."
-        )
-
-    # A state with exactly one race has one district: at-large.
-    state_race_counts = pd.Series(race.get("stateCode") for race in races).value_counts()
-    at_large_states = set(state_race_counts[state_race_counts == 1].index)
-
-    df = pd.DataFrame(flatten_race(race, at_large_states) for race in races)
-
-    # Datawrapper's congressional district maps join on this field. A
-    # malformed geo_id breaks the map silently instead of raising an error.
-    bad_geo_id = df[~df["geo_id"].astype(str).str.match(r"^\d{4}$")]
-    if len(bad_geo_id):
-        raise ValueError(
-            f"{len(bad_geo_id)} race(s) have a missing or malformed geo_id: "
-            f"{bad_geo_id['key'].tolist()}"
-        )
-
-    out_path = PROCESSED_DATA_DIR / "house_races.csv"
-    df.to_csv(out_path, index=False)
-    print(f"Wrote {out_path} ({len(df):,} races)")
-
-    states_df = summarize_battleground_states(df)
-    states_out_path = PROCESSED_DATA_DIR / "battleground_states.csv"
-    states_df.to_csv(states_out_path, index=False)
-    print(f"Wrote {states_out_path} ({len(states_df):,} states)")
-
-    write_battleground_state_files(df, states_df)
-
-
-def write_battleground_state_files(df, states_df) -> None:
-    states_dir = PROCESSED_DATA_DIR / "states"
-    # Clears stale per-state files so a state that drops out of the
-    # battleground list this run doesn't leave a stale file behind.
-    if states_dir.exists():
-        for old_file in states_dir.glob("*.csv"):
-            old_file.unlink()
-    states_dir.mkdir(exist_ok=True)
-
-    battleground_states = states_df.loc[states_df["battleground_count"] > 0, "state"]
-    for state in battleground_states:
-        state_code = df.loc[df["state"] == state, "state_code"].iloc[0]
-        df[df["state"] == state].to_csv(states_dir / f"{state_code}.csv", index=False)
-
-    print(f"Wrote {len(battleground_states):,} per-state files to {states_dir}")
-
-
-def summarize_battleground_states(df) -> "pd.DataFrame":
-    battleground = df[df["is_battleground"] == True].copy()
-    battleground["district_label"] = (
-        battleground["state_district"] + " (" + battleground["rating"] + ")"
-    )
-
-    # Joined with an HTML break/rule/break so Datawrapper renders each
-    # district on its own line, separated by a thin divider.
-    district_separator = "<br><hr><br>"
-    summary = battleground.groupby("state").agg(
-        battleground_count=("state_district", "count"),
-        battleground_districts=("district_label", district_separator.join),
-    )
-
-    result = df[["state"]].drop_duplicates().merge(summary, on="state", how="left")
-    result["battleground_count"] = result["battleground_count"].fillna(0).astype(int)
-    result["battleground_districts"] = result["battleground_districts"].fillna("")
-
-    # Datawrapper chart ID for each state's map, tracked by hand in
-    # data/documentation since Datawrapper has no lookup API for it.
-    chart_ids = pd.read_csv(DOCUMENTATION_DIR / "datawrapper_state_charts.csv")
-    result = result.merge(chart_ids, on="state", how="left")
-
-    return result.sort_values("state").reset_index(drop=True)
+    print(f"Feed timestamp: {all_races['meta']['timestamp']}")
+    print(f"Raw snapshot:   {raw_dir.relative_to(RAW_DATA_DIR.parent.parent)}")
+    for name, df in outputs.items():
+        print(f"  {name:<22}{len(df):>6,} rows")
 
 
 if __name__ == "__main__":
-    fetch()
+    main()
