@@ -11,12 +11,16 @@ Output: data/raw/<pull time>/*.json (untouched snapshots, not versioned)
         data/processed/races.csv            one row per race
         data/processed/candidates.csv       one row per candidate, race fields attached
 Run:    uv run python scripts/fetch.py
-        uv run python scripts/fetch.py --skip-states   (all-races file only)
+        uv run python scripts/fetch.py --check-states  (adds the state file comparison)
 
-The all-races file is the source for races.csv and candidates.csv. The 51
-state files (50 states plus DC) are combined and compared against it. A
-mismatch prints a warning and does not stop the run. The national House
+The all-races file is the only source for races.csv and candidates.csv.
+The 51 state files (50 states plus DC) held the same races, field for
+field, on 2026-10-13. They contain no extra data. The national House
 popular-vote row (state code US) exists only in the all-races file.
+
+--check-states downloads the state files and compares them against the
+all-races file. It reports which copy of each differing race is newer. It
+never changes the CSVs. A mismatch prints a warning and does not stop the run.
 
 The script stops before it writes any CSV if a state is missing or a
 chamber's race count differs from the seats at stake in the balance file.
@@ -170,28 +174,48 @@ def check_completeness(races, balance):
             )
 
 
-def compare_state_files(races, state_races):
-    """Prints any difference between the combined state files and the all-races file."""
-    full = {r["id"]: r for r in races if r["stateCode"] != "US"}
-    combined = {r["id"]: r for r in state_races}
+def compare_state_files(all_races, state_payloads):
+    """Prints any difference between the combined state files and the all-races file.
+
+    For a race that differs, the copy with the later lastUpdated time is the
+    newer one. The tally answers which file leads on Election Night.
+    """
+    full = {r["id"]: r for r in all_races["races"] if r["stateCode"] != "US"}
+    combined = {
+        r["id"]: r
+        for code, payload in state_payloads.items()
+        for r in payload[code.lower()]
+    }
+    stamps = sorted(p["meta"]["timestamp"] for p in state_payloads.values())
+    print(f"All-races file timestamp:   {all_races['meta']['timestamp']}")
+    print(f"State file timestamps:      {stamps[0]} to {stamps[-1]}")
+
     only_full = sorted(set(full) - set(combined))
     only_states = sorted(set(combined) - set(full))
-    changed = [i for i in set(full) & set(combined) if full[i] != combined[i]]
+    changed = sorted(i for i in set(full) & set(combined) if full[i] != combined[i])
     if not (only_full or only_states or changed):
         print(f"State files match the all-races file: {len(combined)} races.")
         return
+
+    # ISO 8601 strings in one format sort in time order.
+    state_newer = sum(combined[i]["lastUpdated"] > full[i]["lastUpdated"] for i in changed)
+    full_newer = sum(combined[i]["lastUpdated"] < full[i]["lastUpdated"] for i in changed)
+    states_hit = sorted({full[i]["stateCode"] for i in changed})
     print("WARNING: state files differ from the all-races file.")
-    print(f"  In all-races only: {len(only_full)} {only_full[:10]}")
-    print(f"  In state files only: {len(only_states)} {only_states[:10]}")
-    print(f"  Same race, different content: {len(changed)} {sorted(changed)[:10]}")
-    print("  Expected mid-update on Election Night. The two files cache separately.")
+    print(f"  In all-races only:    {len(only_full)} {only_full[:10]}")
+    print(f"  In state files only:  {len(only_states)} {only_states[:10]}")
+    print(f"  Same race, different content: {len(changed)} in {', '.join(states_hit)}")
+    print(f"    State copy newer:     {state_newer}")
+    print(f"    All-races copy newer: {full_newer}")
+    print(f"    Same update time:     {len(changed) - state_newer - full_newer}")
+    print("  The CSVs use the all-races file. See README, 'State file check'.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--skip-states", action="store_true",
-        help="Skip the 51 state files and the comparison.",
+        "--check-states", action="store_true",
+        help="Also download the 51 state files and compare them to the all-races file.",
     )
     args = parser.parse_args()
 
@@ -207,17 +231,16 @@ def main():
 
     check_completeness(races, balance)
 
-    if not args.skip_states:
+    if args.check_states:
         # Eight parallel downloads. One at a time takes about 45 seconds.
         urls = [f"{BASE_URL}/general-races-{c.lower()}.json" for c in STATE_CODES]
         with ThreadPoolExecutor(max_workers=8) as pool:
             payloads = list(pool.map(get_json, urls))
-        state_races = []
-        for code, payload in zip(STATE_CODES, payloads):
+        # Each state file keys its race list by the lowercase postal code.
+        state_payloads = dict(zip(STATE_CODES, payloads))
+        for code, payload in state_payloads.items():
             save_raw(payload, raw_dir, f"general-races-{code.lower()}")
-            # Each state file keys its race list by the lowercase postal code.
-            state_races.extend(payload[code.lower()])
-        compare_state_files(races, state_races)
+        compare_state_files(all_races, state_payloads)
 
     party_df, rating_df = balance_tables(balance)
     race_df, cand_df = race_tables(races, all_races["meta"]["timestamp"])

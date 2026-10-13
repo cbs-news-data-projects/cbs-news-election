@@ -33,7 +33,12 @@ logs/
 temp/
 tmp/
 
-# Raw source snapshots — local only, not versioned
+# Raw source snapshots. Local only, not versioned.
 data/raw/
+
+# Full processed datasets. Internal only, never pushed to the public repo.
+# To publish a file, write it to data/public/ instead. See README.
+data/processed/*
+!data/processed/.gitkeep
 CLAUDE.md
 .gitattributes

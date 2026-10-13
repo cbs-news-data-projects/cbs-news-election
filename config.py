@@ -17,13 +17,15 @@ PROJECT_ROOT = Path(__file__).parent
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = PROJECT_ROOT / os.getenv('OUTPUT_DIR', 'data/processed')
+# Committed and pushed. Holds only files picked for public use, such as Datawrapper sources.
+PUBLIC_DATA_DIR = DATA_DIR / "public"
 DOCUMENTATION_DIR = DATA_DIR / "documentation"
 NOTEBOOKS_DIR = PROJECT_ROOT / "notebooks"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 UTILS_DIR = PROJECT_ROOT / "utils"
 
 # Ensure data dirs exist on first import
-for _dir in [RAW_DATA_DIR, PROCESSED_DATA_DIR, DOCUMENTATION_DIR]:
+for _dir in [RAW_DATA_DIR, PROCESSED_DATA_DIR, PUBLIC_DATA_DIR, DOCUMENTATION_DIR]:
     _dir.mkdir(parents=True, exist_ok=True)
 
 # Reproducibility
