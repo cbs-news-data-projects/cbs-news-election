@@ -4,7 +4,7 @@ Pulls the CBS News 2026 general election feeds and flattens them into CSVs for i
 
 ## Refresh the data
 
-Connect to the CBS VPN first. Every script reads the dev-fly feeds below, and dev-fly needs the VPN.
+Connect to the CBS VPN first. Every script reads the CBS feeds below, and they need the VPN.
 
 ```bash
 uv run python scripts/fetch.py                 # balance + all-races, about 3 seconds
@@ -12,19 +12,19 @@ uv run python scripts/fetch.py --check-states  # also compare the 51 state files
 uv run python scripts/fetch_senate.py          # Senate battleground CSV for the Datawrapper map
 ```
 
-If a script can't reach dev-fly, connect to the VPN and rerun.
+If a script can't reach the feeds, connect to the VPN and rerun.
 
 The script stops before it writes any CSV if a state is missing, or if a chamber's race count differs from its seats at stake. The CSVs on disk stay intact after a failed pull.
 
 ## Sources
 
-These three dev-fly feeds are the only sources. Use no other CBS endpoint.
+These three CBS cached Election Night feeds are the only sources. Use no other CBS endpoint. The URLs are in `scripts/fetch.py` (`BASE_URL`).
 
 | Feed | Contents |
 |---|---|
-| [general-balance.json](https://dev-fly.cbsnews.com/election-api/2026/general-balance.json) | Senate, governor and House balance of power and rating counts |
-| [general-races.json](https://dev-fly.cbsnews.com/election-api/2026/general-races.json) | Every race and candidate |
-| `general-races-xx.json` ([Vermont](https://dev-fly.cbsnews.com/election-api/2026/general-races-vt.json)) | One state's races. 50 states plus DC |
+| `general-balance.json` | Senate, governor and House balance of power and rating counts |
+| `general-races.json` | Every race and candidate |
+| `general-races-xx.json` | One state's races. 50 states plus DC |
 
 The CSVs come from the all-races file only. On 2026-10-13 the 51 state files held the same 647 races, field for field, with no extra data. The national House popular-vote row (state code `US`) appears only in the all-races file.
 
@@ -78,7 +78,7 @@ Then delete this README section. `STATE_CODES` stays. The completeness check use
 | `races.csv` | race |
 | `candidates.csv` | candidate, with every race field attached. The complete flat file |
 
-`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the same dev-fly feeds. It is published for the Datawrapper map. See below.
+`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the same feeds. It is published for the Datawrapper map. See below.
 
 ```bash
 uv run python scripts/fetch_senate.py
