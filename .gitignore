@@ -43,6 +43,9 @@ data/processed/*
 # Published for Datawrapper at its original raw GitHub URL. Built by scripts/fetch_senate.py.
 !data/processed/senate_battleground.csv
 
+# Feed URL reference. Local only.
+data/documentation/feeds.md
+
 # Notebooks. Internal only for now. Delete this line to version them.
 notebooks/
 CLAUDE.md

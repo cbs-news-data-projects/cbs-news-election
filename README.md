@@ -4,12 +4,12 @@ Pulls the CBS News 2026 general election feeds and flattens them into CSVs for i
 
 ## Refresh the data
 
-Connect to the CBS VPN first. Every script reads the CBS feeds below, and they need the VPN.
+Connect to the CBS VPN first. `scripts/fetch.py` reads the Election Night feeds below, and they need the VPN.
 
 ```bash
 uv run python scripts/fetch.py                 # balance + all-races, about 3 seconds
 uv run python scripts/fetch.py --check-states  # also compare the 51 state files, about 10 seconds
-uv run python scripts/fetch_senate.py          # Senate battleground CSV for the Datawrapper map
+uv run python scripts/fetch_senate.py          # Senate battleground CSV for the Datawrapper map, no VPN
 ```
 
 If a script can't reach the feeds, connect to the VPN and rerun.
@@ -18,7 +18,9 @@ The script stops before it writes any CSV if a state is missing, or if a chamber
 
 ## Sources
 
-These three CBS cached Election Night feeds are the only sources. Use no other CBS endpoint. The URLs are in `scripts/fetch.py` (`BASE_URL`).
+Two sets of CBS feeds. Full URLs and status are in `data/documentation/feeds.md`, a local file kept out of git.
+
+**Election Night feeds.** Read by `scripts/fetch.py`.
 
 | Feed | Contents |
 |---|---|
@@ -78,7 +80,7 @@ Then delete this README section. `STATE_CODES` stays. The completeness check use
 | `races.csv` | race |
 | `candidates.csv` | candidate, with every race field attached. The complete flat file |
 
-`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the same feeds. It is published for the Datawrapper map. See below.
+`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the CBS preelection Senate ratings feed. It is published for the Datawrapper map. See below. It uses the preelection feed until the Election Night feeds carry preelection ratings again.
 
 ```bash
 uv run python scripts/fetch_senate.py

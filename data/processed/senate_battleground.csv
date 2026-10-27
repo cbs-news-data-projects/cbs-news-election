@@ -1,11 +1,11 @@
-key,state,state_code,rating,incumbent_party,is_battleground
-2026G-AK-G-S-0,Alaska,AK,,REP,True
-2026G-GA-G-S-0,Georgia,GA,Likely Dem,DEM,True
-2026G-IA-G-S-0,Iowa,IA,Lean Rep,REP,True
-2026G-KS-G-S-0,Kansas,KS,Lean Rep,REP,True
-2026G-ME-G-S-0,Maine,ME,Lean Rep,REP,True
-2026G-MI-G-S-0,Michigan,MI,Toss-up,DEM,True
-2026G-NC-G-S-0,North Carolina,NC,Win Dem,REP,True
-2026G-NH-G-S-0,New Hampshire,NH,Lean Dem,DEM,True
-2026G-OH-G-S-0,Ohio,OH,Likely Rep,REP,True
-2026G-TX-G-S-0,Texas,TX,Win Rep,REP,True
+key,state,state_code,rating,incumbent_party,is_battleground,is_key_race
+2026G-NH-G-S-0,New Hampshire,NH,Lean Dem,DEM,True,True
+2026G-GA-G-S-0,Georgia,GA,Lean Dem,DEM,True,True
+2026G-MI-G-S-0,Michigan,MI,Toss-up,DEM,True,True
+2026G-NC-G-S-0,North Carolina,NC,Lean Dem,REP,True,True
+2026G-ME-G-S-0,Maine,ME,Toss-up,REP,True,True
+2026G-OH-P-S-0,Ohio,OH,Toss-up,REP,True,True
+2026G-AK-G-S-0,Alaska,AK,Toss-up,REP,True,True
+2026G-IA-G-S-0,Iowa,IA,Lean Rep,REP,True,True
+2026G-TX-G-S-0,Texas,TX,Toss-up,REP,True,True
+2026G-KS-G-S-0,Kansas,KS,Lean Rep,REP,True,True
