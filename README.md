@@ -80,7 +80,7 @@ Then delete this README section. `STATE_CODES` stays. The completeness check use
 | `races.csv` | race |
 | `candidates.csv` | candidate, with every race field attached. The complete flat file |
 
-`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the CBS preelection Senate ratings feed. It is published for the Datawrapper map. See below. It uses the preelection feed until the Election Night feeds carry preelection ratings again.
+`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the CBS preelection Senate ratings feed. It is published for the Datawrapper map. See below. It uses the preelection feed through Election Day, Nov. 3.
 
 ```bash
 uv run python scripts/fetch_senate.py

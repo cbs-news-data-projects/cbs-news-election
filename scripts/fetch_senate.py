@@ -9,9 +9,9 @@ Output: data/raw/<pull time>/pre-election-senate-races.json
         feed marks as a battleground
 Run:    uv run python scripts/fetch_senate.py
 
-This script uses the preelection feed until the dev-fly feeds carry
-preelection ratings again. As of 2026-10-27, dev-fly holds Win ratings,
-vote counts and race calls, so it does not feed the map.
+This script uses the preelection feed through Election Day, Nov. 3, 2026.
+As of 2026-10-27, dev-fly holds Win ratings, vote counts and race calls,
+so it does not feed the map before then.
 
 senate_battleground.csv is the one file in data/processed/ that git tracks.
 A .gitignore exception publishes it for the Datawrapper map at:
