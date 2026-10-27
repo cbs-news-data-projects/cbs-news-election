@@ -40,6 +40,8 @@ data/raw/
 # To publish a file, write it to data/public/ instead. See README.
 data/processed/*
 !data/processed/.gitkeep
+# Published for Datawrapper at its original raw GitHub URL. Built by scripts/fetch_senate.py.
+!data/processed/senate_battleground.csv
 
 # Notebooks. Internal only for now. Delete this line to version them.
 notebooks/

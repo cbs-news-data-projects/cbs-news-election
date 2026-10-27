@@ -73,6 +73,17 @@ Then delete this README section. `STATE_CODES` stays. The completeness check use
 | `races.csv` | race |
 | `candidates.csv` | candidate, with every race field attached. The complete flat file |
 
+`scripts/fetch_senate.py` writes two more files from the public [preelection Senate ratings feed](https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json):
+
+| File | One row per |
+|---|---|
+| `senate_races.csv` | Senate race. Internal |
+| `senate_battleground.csv` | Senate battleground race. **Published**, see below |
+
+```bash
+uv run python scripts/fetch_senate.py
+```
+
 Raw JSON snapshots land in `data/raw/<pull time>/`. They stay local and are not versioned.
 
 ## What gets published
@@ -84,6 +95,9 @@ The repo is public. Only `data/public/` is pushed.
 | `data/raw/` | no | feed snapshots |
 | `data/processed/` | no | full internal datasets |
 | `data/public/` | yes | files picked for public use, such as Datawrapper sources |
+
+**Exception:** `data/processed/senate_battleground.csv` is tracked so Datawrapper keeps its original URL:
+`https://raw.githubusercontent.com/cbs-news-data-projects/cbs-news-election/refs/heads/main/data/processed/senate_battleground.csv`
 
 **Publish a file:** write it to `data/public/`. Use `PUBLIC_DATA_DIR` from `config.py`. Commit and push it. A Datawrapper chart reads the raw GitHub URL:
 `https://raw.githubusercontent.com/cbs-news-data-projects/cbs-news-election/main/data/public/<file>.csv`
