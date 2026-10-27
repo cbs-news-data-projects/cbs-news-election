@@ -4,16 +4,21 @@ Pulls the CBS News 2026 general election feeds and flattens them into CSVs for i
 
 ## Refresh the data
 
+Connect to the CBS VPN first. Every script reads the dev-fly feeds below, and dev-fly needs the VPN.
+
 ```bash
 uv run python scripts/fetch.py                 # balance + all-races, about 3 seconds
 uv run python scripts/fetch.py --check-states  # also compare the 51 state files, about 10 seconds
+uv run python scripts/fetch_senate.py          # Senate battleground CSV for the Datawrapper map
 ```
+
+If a script can't reach dev-fly, connect to the VPN and rerun.
 
 The script stops before it writes any CSV if a state is missing, or if a chamber's race count differs from its seats at stake. The CSVs on disk stay intact after a failed pull.
 
 ## Sources
 
-CBS News cached Election Night feeds:
+These three dev-fly feeds are the only sources. Use no other CBS endpoint.
 
 | Feed | Contents |
 |---|---|
@@ -73,12 +78,7 @@ Then delete this README section. `STATE_CODES` stays. The completeness check use
 | `races.csv` | race |
 | `candidates.csv` | candidate, with every race field attached. The complete flat file |
 
-`scripts/fetch_senate.py` writes two more files from the public [preelection Senate ratings feed](https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json):
-
-| File | One row per |
-|---|---|
-| `senate_races.csv` | Senate race. Internal |
-| `senate_battleground.csv` | Senate battleground race. **Published**, see below |
+`scripts/fetch_senate.py` writes `senate_battleground.csv`, one row per Senate battleground race, from the same dev-fly feeds. It is published for the Datawrapper map. See below.
 
 ```bash
 uv run python scripts/fetch_senate.py

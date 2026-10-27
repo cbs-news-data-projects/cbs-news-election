@@ -30,7 +30,6 @@ The CSVs on disk stay intact after a failed pull.
 import argparse
 import json
 import re
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -67,19 +66,8 @@ def snake(name):
 
 
 def get_json(url):
-    """Downloads one feed file and returns the parsed JSON.
-
-    Falls back to the curl binary on HTTP 406. The www.cbsnews.com edge
-    rejects Python HTTP clients by TLS fingerprint with a 406. The dev-fly
-    host accepts requests as of 2026-10-13.
-    """
+    """Downloads one dev-fly feed file and returns the parsed JSON."""
     resp = requests.get(url, timeout=API_TIMEOUT)
-    if resp.status_code == 406:
-        out = subprocess.run(
-            ["curl", "-sSf", "--max-time", str(API_TIMEOUT), url],
-            capture_output=True, text=True, check=True,
-        )
-        return json.loads(out.stdout)
     resp.raise_for_status()
     return resp.json()
 

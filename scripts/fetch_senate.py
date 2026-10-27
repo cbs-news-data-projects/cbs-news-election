@@ -1,126 +1,111 @@
-"""Fetch CBS News Senate race ratings and export a flat race-level table.
+"""Write the Senate battleground table for the Datawrapper map.
 
-Source: CBS News Elections, preelection race ratings. 2026 general election, Senate.
-https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json
-Input:  none, pulled directly from the source
-Output: data/raw/senate_races_<UTC timestamp>.json (raw API response;
-        keeps the last RAW_SNAPSHOTS_TO_KEEP runs so rating changes can be
-        diffed between snapshots, older ones pruned automatically)
-        data/processed/senate_races.csv
-        data/processed/senate_battleground.csv (races where is_battleground is True)
+Source: CBS News Elections, cached Election Night feeds. 2026 general election.
+        https://dev-fly.cbsnews.com/election-api/2026/general-races.json
+        https://dev-fly.cbsnews.com/election-api/2026/general-balance.json
+Input:  none, pulled directly from the source. Requires the CBS VPN.
+Output: data/raw/<pull time>/general-races.json, general-balance.json
+        (untouched snapshots, not versioned)
+        data/processed/senate_battleground.csv  one row per Senate race the
+        feed marks as a battleground
 Run:    uv run python scripts/fetch_senate.py
 
 senate_battleground.csv is the one file in data/processed/ that git tracks.
-A .gitignore exception publishes it for this raw GitHub URL:
+A .gitignore exception publishes it for the Datawrapper map at:
 https://raw.githubusercontent.com/cbs-news-data-projects/cbs-news-election/refs/heads/main/data/processed/senate_battleground.csv
-senate_races.csv stays local.
 
-Each run overwrites both CSVs. The printed feed timestamp is the pull date
-of record. The feed holds one row per Senate seat up in 2026, one or two
-per state.
+Each run overwrites the CSV. The map matches rows on state_code and colors
+them by rating. The feed sets rating and is_battleground. This script does
+not change them. A race with no rating in the feed has a blank rating cell.
 
-Public feed, no VPN required. It is separate from the dev-fly Election
-Night feeds that scripts/fetch.py reads. It keeps race-level rating fields
-only. Candidate names and percentages are not used downstream.
-
-Fetches via the `curl` binary, not a Python HTTP client: CBS's edge
-consistently 406s requests from Python's ssl stack (both requests and
-httpx, HTTP/1.1 or HTTP/2) by TLS fingerprint, while curl is never blocked.
+The script stops before it writes the CSV if dev-fly is unreachable, or if
+the Senate race count differs from the seats at stake in the balance file.
+The published CSV stays intact after a failed pull.
 """
 
-import json
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import PROCESSED_DATA_DIR, RAW_DATA_DIR  # noqa: E402
+from scripts.fetch import BASE_URL, get_json, save_raw  # noqa: E402
 
-URL = "https://www.cbsnews.com/election-api/2026/pre-election-senate-races.json"
-RAW_SNAPSHOTS_TO_KEEP = 5
+OUT_PATH = PROCESSED_DATA_DIR / "senate_battleground.csv"
 
-
-def flatten_race(race: dict) -> dict:
-    return {
-        "key": race.get("key"),
-        "state": race.get("state"),
-        "state_code": race.get("stateCode"),
-        "rating": race.get("rating"),
-        "incumbent_party": race.get("incumbentParty"),
-        "is_battleground": race.get("isBattleground"),
-        "is_key_race": race.get("keyRace"),
-    }
+# Column names match the CSV the Datawrapper map already reads.
+COLUMNS = {
+    "key": "key",
+    "stateName": "state",
+    "stateCode": "state_code",
+    "rating": "rating",
+    "incumbentParty": "incumbent_party",
+    "isBattleground": "is_battleground",
+}
 
 
-def report_changes(previous_df: pd.DataFrame, current_df: pd.DataFrame) -> None:
-    previous_by_key = previous_df.set_index("key")
-    current_by_key = current_df.set_index("key")
-
-    added = current_by_key.index.difference(previous_by_key.index)
-    removed = previous_by_key.index.difference(current_by_key.index)
-    shared = current_by_key.index.intersection(previous_by_key.index)
-    changed = shared[
-        (previous_by_key.loc[shared].values != current_by_key.loc[shared].values).any(axis=1)
-    ]
-
-    if added.empty and removed.empty and changed.empty:
-        print("No change from previous senate_races.csv")
+def report_changes(previous, current):
+    """Prints battleground races added, removed, or re-rated since the last run."""
+    before = previous.set_index("key")["rating"]
+    after = current.set_index("key")["rating"]
+    added = after.index.difference(before.index)
+    removed = before.index.difference(after.index)
+    shared = after.index.intersection(before.index)
+    changed = [k for k in shared if str(before[k]) != str(after[k])]
+    if not (len(added) or len(removed) or changed):
+        print("No change from the published CSV.")
         return
-
-    print(f"CHANGED from previous senate_races.csv: {len(changed)} changed, {len(added)} added, {len(removed)} removed")
-    for key in changed:
-        before, after = previous_by_key.loc[key], current_by_key.loc[key]
-        diffs = [f"{col}: {before[col]!r} -> {after[col]!r}" for col in current_by_key.columns if before[col] != after[col]]
-        print(f"  {key} ({after['state']}): {'; '.join(diffs)}")
-    for key in added:
-        print(f"  + {key} ({current_by_key.loc[key, 'state']})")
-    for key in removed:
-        print(f"  - {key} ({previous_by_key.loc[key, 'state']})")
+    print(f"CHANGED from the published CSV: {len(changed)} re-rated, {len(added)} added, {len(removed)} removed")
+    for k in changed:
+        print(f"  {k}: {before[k]} -> {after[k]}")
+    for k in added:
+        print(f"  + {k} ({after[k]})")
+    for k in removed:
+        print(f"  - {k}")
 
 
-def fetch() -> None:
-    # CBS News preelection Senate ratings feed, pulled live on every run.
-    result = subprocess.run(
-        ["curl", "-s", "-m", "30", "--fail", URL],
-        capture_output=True, text=True, check=True,
-    )
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    raw_path = RAW_DATA_DIR / f"senate_races_{timestamp}.json"
-    raw_path.write_text(result.stdout)
+def main():
+    pulled = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        # CBS cached Election Night feeds on dev-fly, pulled on every run.
+        races_feed = get_json(f"{BASE_URL}/general-races.json")
+        balance = get_json(f"{BASE_URL}/general-balance.json")
+    except (requests.ConnectionError, requests.Timeout) as err:
+        sys.exit(f"STOP: cannot reach dev-fly. Connect to the VPN and rerun. No CSV written.\n{err}")
 
-    old_snapshots = sorted(RAW_DATA_DIR.glob("senate_races_*.json"))
-    for stale_path in old_snapshots[:-RAW_SNAPSHOTS_TO_KEEP]:
-        stale_path.unlink()
+    raw_dir = RAW_DATA_DIR / pulled
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    save_raw(races_feed, raw_dir, "general-races")
+    save_raw(balance, raw_dir, "general-balance")
 
-    feed = json.loads(result.stdout)
-    races = feed["senate-races"]
+    # Senate races by state. The US row is the national Senate placeholder,
+    # not a seat, so the count check leaves it out.
+    senate = [r for r in races_feed["races"] if r["office"] == "S" and r["stateCode"] != "US"]
+    seats = next(o["seatsAtStake"] for o in balance["balance"]["offices"] if o["name"] == "S")
+    if len(senate) != seats:
+        sys.exit(f"STOP: {len(senate)} Senate races in the feed, {seats} seats at stake. No CSV written.")
 
-    df = pd.DataFrame(flatten_race(race) for race in races)
-
-    out_path = PROCESSED_DATA_DIR / "senate_races.csv"
-    previous_df = pd.read_csv(out_path) if out_path.exists() else None
-    df.to_csv(out_path, index=False)
-    print(f"Wrote {out_path} ({len(df):,} races)")
-    if previous_df is not None:
-        report_changes(previous_df, df)
-
+    df = pd.DataFrame(senate)[list(COLUMNS)].rename(columns=COLUMNS)
     battleground = df[df["is_battleground"]]
-    battleground_path = PROCESSED_DATA_DIR / "senate_battleground.csv"
-    battleground.to_csv(battleground_path, index=False)
-    print(f"Wrote {battleground_path} ({len(battleground):,} races)")
 
+    previous = pd.read_csv(OUT_PATH) if OUT_PATH.exists() else None
+    battleground.to_csv(OUT_PATH, index=False)
+    if previous is not None:
+        report_changes(previous, battleground)
+
+    unrated = battleground.loc[battleground["rating"].isna(), "state"].tolist()
     ratings = "; ".join(f"{r.state} {r.rating}" for r in battleground.itertuples())
     print(f"""
 SUMMARY
-Records:  {len(df):,} Senate races | feed timestamp {feed["meta"]["timestamp"]} | pulled {timestamp}
-Findings: {len(battleground):,} races are battlegrounds: {ratings}
-Concerns: The feed sets is_battleground and rating. This script does not change them.
-Outputs:  {out_path.relative_to(PROCESSED_DATA_DIR.parent.parent)}, {battleground_path.relative_to(PROCESSED_DATA_DIR.parent.parent)}
+Records:  {len(df):,} Senate races | {len(battleground):,} battlegrounds | feed timestamp {races_feed["meta"]["timestamp"]} | pulled {pulled}
+Findings: {ratings}
+Concerns: No rating in the feed: {", ".join(unrated) or "none"}
+Outputs:  data/processed/senate_battleground.csv
 """)
 
 
 if __name__ == "__main__":
-    fetch()
+    main()
