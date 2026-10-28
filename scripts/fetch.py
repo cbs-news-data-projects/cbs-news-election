@@ -15,8 +15,9 @@ Run:    uv run python scripts/fetch.py
 
 The all-races file is the only source for races.csv and candidates.csv.
 The 51 state files (50 states plus DC) held the same races, field for
-field, on 2026-10-13. They contain no extra data. The national House
-popular-vote row (state code US) exists only in the all-races file.
+field, on 2026-10-13. They contain no extra data. The national
+popular-vote rows (state code US, jType NR) exist only in the all-races
+file. House had one on 2026-10-13. Senate had one by 2026-10-28.
 
 --check-states downloads the state files and compares them against the
 all-races file. It reports which copy of each differing race is newer. It
@@ -147,14 +148,12 @@ def check_completeness(races, balance):
     if missing:
         sys.exit(f"STOP: no races for {', '.join(missing)}. No CSVs written.")
 
-    # House counts district races only. The national popular-vote row
-    # (jType NR) is not a seat.
+    # National popular-vote rows (jType NR, state code US) are not seats.
+    # The House row was there on 2026-10-13. A Senate row appeared by
+    # 2026-10-28. Skip them in every chamber.
     for office in balance["balance"]["offices"]:
         code = office["name"]
-        n = sum(
-            1 for r in races
-            if r["office"] == code and (code != "H" or r["jType"] == "CD")
-        )
+        n = sum(1 for r in races if r["office"] == code and r["jType"] != "NR")
         if n != office["seatsAtStake"]:
             sys.exit(
                 f"STOP: {CHAMBERS[code]} has {n} races in the feed but "

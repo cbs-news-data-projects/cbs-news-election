@@ -28,7 +28,7 @@ Two sets of CBS feeds. Full URLs and status are in `data/documentation/feeds.md`
 | `general-races.json` | Every race and candidate |
 | `general-races-xx.json` | One state's races. 50 states plus DC |
 
-The CSVs come from the all-races file only. On 2026-10-13 the 51 state files held the same 647 races, field for field, with no extra data. The national House popular-vote row (state code `US`) appears only in the all-races file.
+The CSVs come from the all-races file only. On 2026-10-13 the 51 state files held the same 647 races, field for field, with no extra data. The national popular-vote rows (state code `US`) appear only in the all-races file. House had one on 2026-10-13. Senate had one by 2026-10-28. They are not seats and are skipped by the race-count check.
 
 ## State file check
 
