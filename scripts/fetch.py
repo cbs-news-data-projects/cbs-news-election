@@ -1,9 +1,9 @@
 """Pull the CBS News 2026 general election feeds and write flat CSVs.
 
 Source: CBS News Elections, cached Election Night feeds. 2026 general election.
-        https://dev-fly.cbsnews.com/election-api/2026/general-balance.json
-        https://dev-fly.cbsnews.com/election-api/2026/general-races.json
-        https://dev-fly.cbsnews.com/election-api/2026/general-races-{xx}.json
+        https://www.cbsnews.com/election-api/2026/general-balance.json
+        https://www.cbsnews.com/election-api/2026/general-races.json
+        https://www.cbsnews.com/election-api/2026/general-races-{xx}.json
 Input:  none, pulled directly from the source
 Output: data/raw/<pull time>/*.json (untouched snapshots, not versioned)
         data/processed/balance.csv          one row per chamber and party
@@ -31,18 +31,18 @@ The CSVs on disk stay intact after a failed pull.
 import argparse
 import json
 import re
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import API_TIMEOUT, PROCESSED_DATA_DIR, RAW_DATA_DIR  # noqa: E402
 
-BASE_URL = "https://dev-fly.cbsnews.com/election-api/2026"
+BASE_URL = "https://www.cbsnews.com/election-api/2026"
 
 # 50 states plus DC. Each has a general-races-{xx}.json file. US is not a
 # state file. It is the national House row inside general-races.json.
@@ -67,10 +67,16 @@ def snake(name):
 
 
 def get_json(url):
-    """Downloads one dev-fly feed file and returns the parsed JSON."""
-    resp = requests.get(url, timeout=API_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()
+    """Downloads one www.cbsnews.com feed file and returns the parsed JSON.
+
+    Uses the curl binary. The www.cbsnews.com edge rejects Python HTTP
+    clients with an HTTP 406. No VPN needed.
+    """
+    out = subprocess.run(
+        ["curl", "-sSf", "--max-time", str(API_TIMEOUT), url],
+        capture_output=True, text=True, check=True,
+    )
+    return json.loads(out.stdout)
 
 
 def save_raw(payload, folder, name):

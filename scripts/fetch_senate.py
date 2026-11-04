@@ -10,8 +10,8 @@ Output: data/raw/<pull time>/pre-election-senate-races.json
 Run:    uv run python scripts/fetch_senate.py
 
 This script uses the preelection feed through Election Day, Nov. 3, 2026.
-As of 2026-10-27, dev-fly holds Win ratings, vote counts and race calls,
-so it does not feed the map before then.
+The Election Night feeds that scripts/fetch.py reads moved from dev-fly to
+www.cbsnews.com on 2026-11-03. The map stays on the preelection feed.
 
 senate_battleground.csv is the one file in data/processed/ that git tracks.
 A .gitignore exception publishes it for the Datawrapper map at:

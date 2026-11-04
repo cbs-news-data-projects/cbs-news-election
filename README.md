@@ -4,15 +4,15 @@ Pulls the CBS News 2026 general election feeds and flattens them into CSVs for i
 
 ## Refresh the data
 
-Connect to the CBS VPN first. `scripts/fetch.py` reads the Election Night feeds below, and they need the VPN.
+`scripts/fetch.py` reads the Election Night feeds below. They are public on www.cbsnews.com, so no VPN.
 
 ```bash
 uv run python scripts/fetch.py                 # balance + all-races, about 3 seconds
 uv run python scripts/fetch.py --check-states  # also compare the 51 state files, about 10 seconds
-uv run python scripts/fetch_senate.py          # Senate battleground CSV for the Datawrapper map, no VPN
+uv run python scripts/fetch_senate.py          # Senate battleground CSV for the Datawrapper map
 ```
 
-If a script can't reach the feeds, connect to the VPN and rerun.
+If a script can't reach the feeds, check your connection and rerun.
 
 The script stops before it writes any CSV if a state is missing, or if a chamber's race count differs from its seats at stake. The CSVs on disk stay intact after a failed pull.
 
